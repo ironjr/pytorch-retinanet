@@ -79,7 +79,7 @@ if args.resume:
     checkpoint = torch.load('./checkpoint/ckpt.pth')
     net.load_state_dict(checkpoint['net'])
     best_loss = checkpoint['loss']
-    start_epoch = checkpoint['epoch']
+    start_epoch = checkpoint['epoch'] + 1
 
 # Memory reduction
 net.half()
@@ -126,9 +126,7 @@ def train(epoch):
                 % (batch_idx, len(trainloader), loc_loss.data, cls_loss.data, loss.data, train_loss / (batch_idx + 1)))
 
         # Debug - catch if loss is nan
-        if isnan(loc_loss.data) or isnan(cls_loss.data):
-            print("Loss is Nan!")
-            input("pause")
+        assert (not isnan(loc_loss.data) and not isnan(cls_loss.data)), "Loss is Nan!"
 
         # Save at the middle
         if batch_idx % save_every == 0:
@@ -141,8 +139,8 @@ def test(epoch):
     net.eval()
     test_loss = 0
     for batch_idx, (inputs, loc_targets, cls_targets) in enumerate(testloader):
-        inputs = Variable(inputs.cuda(), volatile=True)
-        loc_targets = Variable(loc_targets.cuda())
+        inputs = Variable(inputs.cuda(), volatile=True).half()
+        loc_targets = Variable(loc_targets.cuda()).half()
         cls_targets = Variable(cls_targets.cuda())
 
         loc_preds, cls_preds = net(inputs)
@@ -161,6 +159,9 @@ def test(epoch):
             avg_test_logger.scalar_summary('loss', test_loss / (batch_idx + 1), step)
         print('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | test_loss: %.3f | avg_loss: %.3f' 
                 % (batch_idx, len(testloader), loc_loss.data, cls_loss.data, loss.data, test_loss / (batch_idx + 1)))
+
+        # Debug - catch if loss is nan
+        assert (not isnan(loc_loss.data) and not isnan(cls_loss.data)), "Loss is Nan!"
 
     # Save if loss has improved
     global best_loss
@@ -183,6 +184,8 @@ def save(label, net, loss=float('inf'), epoch=0):
     print('==> Save done!')
 
 
-for epoch in range(start_epoch, start_epoch + 200):
-    train(epoch)
-    test(epoch)
+#  for epoch in range(start_epoch, start_epoch + 200):
+#      train(epoch)
+#      test(epoch)
+train(start_epoch)
+test(start_epoch)
