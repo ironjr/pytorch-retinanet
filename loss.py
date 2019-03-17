@@ -34,13 +34,13 @@ class FocalLoss(nn.Module):
 
         t = one_hot_embedding(y.data.cpu(), 1 + self.num_classes)  # [N,91]
         t = t[:, 1:]  # exclude background
-        t = Variable(t).cuda()  # [N,90]
+        t = Variable(t).half().cuda()  # [N,90]
 
         p = x.sigmoid()
         pt = p * t + (1 - p) * (1 - t)         # pt = p if t > 0 else 1-p
         w = alpha * t + (1 - alpha) * (1 - t)  # w = alpha if t > 0 else 1-alpha
         w = w * (1 - pt).pow(gamma)
-        w = Variable(w).cuda()
+        w = Variable(w).half().cuda()
         return F.binary_cross_entropy_with_logits(x, t, w, reduction='sum')
 
     def focal_loss_alt(self, x, y):
@@ -101,8 +101,12 @@ class FocalLoss(nn.Module):
                 / num_pos
 
         loss = loc_loss + cls_loss
+
+        # Manage NaN loss exception
         # This code is not optimized
         if num_pos.item() == 0:
-            return loss * 0, loc_loss * 0, cls_loss * 0
+            return (Variable(torch.Tensor([0]).type_as(loss.data), requires_grad=True),
+                    Variable(torch.Tensor([0]).type_as(loc_loss.data), requires_grad=True),
+                    Variable(torch.Tensor([0]).type_as(cls_loss.data), requires_grad=True))
         else:
             return loss, loc_loss, cls_loss

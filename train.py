@@ -29,6 +29,8 @@ data_root = '../common/datasets/'
 coco17_train_path = 'COCO/train2017/'
 coco17_val_path = 'COCO/val2017/'
 
+save_every = 1000
+
 parser = argparse.ArgumentParser(description='PyTorch RetinaNet Training')
 parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
@@ -79,10 +81,15 @@ if args.resume:
     best_loss = checkpoint['loss']
     start_epoch = checkpoint['epoch']
 
+# Memory reduction
+net.half()
+
 net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
 net.cuda()
 
-criterion = FocalLoss()
+# Memory reduction
+criterion = FocalLoss().half()
+
 optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4)
 
 # Training
@@ -92,8 +99,9 @@ def train(epoch):
     net.module.freeze_bn()
     train_loss = 0
     for batch_idx, (inputs, loc_targets, cls_targets) in enumerate(trainloader):
-        inputs = Variable(inputs.cuda())
-        loc_targets = Variable(loc_targets.cuda())
+        # Memory reduction
+        inputs = Variable(inputs.cuda()).half()
+        loc_targets = Variable(loc_targets.cuda()).half()
         cls_targets = Variable(cls_targets.cuda())
 
         optimizer.zero_grad()
@@ -122,6 +130,11 @@ def train(epoch):
             print("Loss is Nan!")
             input("pause")
 
+        # Save at the middle
+        if batch_idx % save_every == 0:
+            save('train' + str(batch_idx), net, loss.data, epoch)
+
+
 # Test
 def test(epoch):
     print('\nTest')
@@ -149,20 +162,25 @@ def test(epoch):
         print('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | test_loss: %.3f | avg_loss: %.3f' 
                 % (batch_idx, len(testloader), loc_loss.data, cls_loss.data, loss.data, test_loss / (batch_idx + 1)))
 
-    # Save checkpoint
+    # Save if loss has improved
     global best_loss
     test_loss /= len(testloader)
     if test_loss < best_loss:
-        print('Saving..')
-        state = {
-            'net': net.module.state_dict(),
-            'loss': test_loss,
-            'epoch': epoch,
-        }
-        if not os.path.isdir('checkpoint'):
-            os.mkdir('checkpoint')
-        torch.save(state, './checkpoint/ckpt.pth')
-        best_loss = test_loss
+        save('test' + str(epoch), net, test_loss, epoch)
+    best_loss = test_loss
+
+def save(label, net, loss=float('inf'), epoch=0):
+    print('==> Saving checkpoint')
+    # Save checkpoint
+    state = {
+        'net': net.module.state_dict(),
+        'loss': loss,
+        'epoch': epoch,
+    }
+    if not os.path.isdir('checkpoint'):
+        os.mkdir('checkpoint')
+    torch.save(state, './checkpoint/ckpt_' + label + '.pth')
+    print('==> Save done!')
 
 
 for epoch in range(start_epoch, start_epoch + 200):
