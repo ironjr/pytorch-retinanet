@@ -78,7 +78,7 @@ class FPN(nn.Module):
           (Variable) added feature map.
 
         Note in PyTorch, when input size is odd, the upsampled feature map
-        with `F.upsample(..., scale_factor=2, mode='nearest')`
+        with `F.interpolate(..., scale_factor=2, mode='nearest')`
         maybe not equal to the lateral feature map size.
 
         e.g.
@@ -89,7 +89,7 @@ class FPN(nn.Module):
         So we choose bilinear upsample which supports arbitrary output sizes.
         '''
         _,_,H,W = y.size()
-        return F.upsample(x, size=(H,W), mode='bilinear') + y
+        return F.interpolate(x, size=(H,W), mode='bilinear') + y
 
     def forward(self, x):
         # Bottom-up

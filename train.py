@@ -18,6 +18,16 @@ from datagen import ListDataset
 
 from torch.autograd import Variable
 
+from logger import Logger
+
+# Debug
+from math import isnan
+
+
+# Datasets are downloaded from http://cocodataset.org/
+data_root = '../common/datasets/'
+coco17_train_path = 'COCO/train2017/'
+coco17_val_path = 'COCO/val2017/'
 
 parser = argparse.ArgumentParser(description='PyTorch RetinaNet Training')
 parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
@@ -28,20 +38,36 @@ assert torch.cuda.is_available(), 'Error: CUDA not found!'
 best_loss = float('inf')  # best test loss
 start_epoch = 0  # start from epoch 0 or last epoch
 
+# Tensorboard logger
+log_root = './log/'
+loc_logger = Logger(log_root + 'loc_loss')
+cls_logger = Logger(log_root + 'cls_loss')
+train_logger = Logger(log_root + 'train_loss')
+avg_train_logger = Logger(log_root + 'avg_train_loss')
+test_logger = Logger(log_root + 'test_loss')
+avg_test_logger = Logger(log_root + 'avg_test_loss')
+
 # Data
 print('==> Preparing data..')
 transform = transforms.Compose([
     transforms.ToTensor(),
+
+    # Normalize with ImageNet statistics
     transforms.Normalize((0.485,0.456,0.406), (0.229,0.224,0.225))
 ])
 
-trainset = ListDataset(root='/search/odin/liukuang/data/voc_all_images',
-                       list_file='./data/voc12_train.txt', train=True, transform=transform, input_size=600)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=16, shuffle=True, num_workers=8, collate_fn=trainset.collate_fn)
+# Train with COCO
+trainset = ListDataset(root=(data_root + coco17_train_path),
+        list_file='./data/coco17_train.txt', train=True, transform=transform,
+        input_size=600)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=2, shuffle=True,
+        num_workers=0, collate_fn=trainset.collate_fn)
 
-testset = ListDataset(root='/search/odin/liukuang/data/voc_all_images',
-                      list_file='./data/voc12_val.txt', train=False, transform=transform, input_size=600)
-testloader = torch.utils.data.DataLoader(testset, batch_size=16, shuffle=False, num_workers=8, collate_fn=testset.collate_fn)
+testset = ListDataset(root=(data_root + coco17_val_path),
+        list_file='./data/coco17_val.txt', train=False, transform=transform,
+        input_size=600)
+testloader = torch.utils.data.DataLoader(testset, batch_size=2, shuffle=False,
+        num_workers=0, collate_fn=testset.collate_fn)
 
 # Model
 net = RetinaNet()
@@ -72,12 +98,29 @@ def train(epoch):
 
         optimizer.zero_grad()
         loc_preds, cls_preds = net(inputs)
-        loss = criterion(loc_preds, loc_targets, cls_preds, cls_targets)
+        loss, loc_loss, cls_loss = criterion(
+                loc_preds, loc_targets, cls_preds, cls_targets)
         loss.backward()
         optimizer.step()
 
-        train_loss += loss.data[0]
-        print('train_loss: %.3f | avg_loss: %.3f' % (loss.data[0], train_loss/(batch_idx+1)))
+        train_loss += loss.data
+
+        step = batch_idx + len(trainloader) * epoch
+        if loc_logger is not None:
+            loc_logger.scalar_summary('loss', loc_loss.data, step)
+        if cls_logger is not None:
+            cls_logger.scalar_summary('loss', cls_loss.data, step)
+        if train_logger is not None:
+            train_logger.scalar_summary('loss', loss.data, step)
+        if avg_train_logger is not None:
+            avg_train_logger.scalar_summary('loss', train_loss / (batch_idx + 1), step)
+        print('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | train_loss: %.3f | avg_loss: %.3f' 
+                % (batch_idx, len(trainloader), loc_loss.data, cls_loss.data, loss.data, train_loss / (batch_idx + 1)))
+
+        # Debug - catch if loss is nan
+        if isnan(loc_loss.data) or isnan(cls_loss.data):
+            print("Loss is Nan!")
+            input("pause")
 
 # Test
 def test(epoch):
@@ -90,9 +133,21 @@ def test(epoch):
         cls_targets = Variable(cls_targets.cuda())
 
         loc_preds, cls_preds = net(inputs)
-        loss = criterion(loc_preds, loc_targets, cls_preds, cls_targets)
-        test_loss += loss.data[0]
-        print('test_loss: %.3f | avg_loss: %.3f' % (loss.data[0], test_loss/(batch_idx+1)))
+        loss, loc_loss, cls_loss = criterion(
+                loc_preds, loc_targets, cls_preds, cls_targets)
+
+        test_loss += loss.data
+
+        if loc_logger is not None:
+            loc_logger.scalar_summary('loss', loc_loss.data, step)
+        if cls_logger is not None:
+            cls_logger.scalar_summary('loss', cls_loss.data, step)
+        if test_logger is not None:
+            test_logger.scalar_summary('loss', loss.data, step)
+        if avg_test_logger is not None:
+            avg_test_logger.scalar_summary('loss', test_loss / (batch_idx + 1), step)
+        print('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | test_loss: %.3f | avg_loss: %.3f' 
+                % (batch_idx, len(testloader), loc_loss.data, cls_loss.data, loss.data, test_loss / (batch_idx + 1)))
 
     # Save checkpoint
     global best_loss
@@ -110,6 +165,6 @@ def test(epoch):
         best_loss = test_loss
 
 
-for epoch in range(start_epoch, start_epoch+200):
+for epoch in range(start_epoch, start_epoch + 200):
     train(epoch)
     test(epoch)

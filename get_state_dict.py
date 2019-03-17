@@ -26,16 +26,16 @@ print('Saving RetinaNet..')
 net = RetinaNet()
 for m in net.modules():
     if isinstance(m, nn.Conv2d):
-        init.normal(m.weight, mean=0, std=0.01)
+        init.normal_(m.weight, mean=0, std=0.01)
         if m.bias is not None:
-            init.constant(m.bias, 0)
+            init.constant_(m.bias, 0)
     elif isinstance(m, nn.BatchNorm2d):
         m.weight.data.fill_(1)
         m.bias.data.zero_()
 
 pi = 0.01
-init.constant(net.cls_head[-1].bias, -math.log((1-pi)/pi))
+init.constant_(net.cls_head[-1].bias, -math.log((1-pi)/pi))
 
 net.fpn.load_state_dict(dd)
-torch.save(net.state_dict(), 'net.pth')
+torch.save(net.state_dict(), './model/net.pth')
 print('Done!')
