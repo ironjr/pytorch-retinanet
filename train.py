@@ -29,25 +29,26 @@ data_root = '../common/datasets/'
 coco17_train_path = 'COCO/train2017/'
 coco17_val_path = 'COCO/val2017/'
 
-save_every = 1000
+save_every = 5000
 
 parser = argparse.ArgumentParser(description='PyTorch RetinaNet Training')
+parser.add_argument('--label', default='default', type=str, help='run label')
 parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 args = parser.parse_args()
 
 assert torch.cuda.is_available(), 'Error: CUDA not found!'
-best_loss = float('inf')  # best test loss
 start_epoch = 0  # start from epoch 0 or last epoch
+iteration = 0
 
 # Tensorboard logger
 log_root = './log/'
-loc_logger = Logger(log_root + 'loc_loss')
-cls_logger = Logger(log_root + 'cls_loss')
-train_logger = Logger(log_root + 'train_loss')
-avg_train_logger = Logger(log_root + 'avg_train_loss')
-test_logger = Logger(log_root + 'test_loss')
-avg_test_logger = Logger(log_root + 'avg_test_loss')
+log_names = ['', 'loc_loss', 'cls_loss', 'train_loss', 'avg_train_loss', 'test_loss']
+log_dirs = list(map(lambda x: log_root + args.label + '/' + x, log_names))
+for log_dir in log_dirs:
+    if not os.path.isdir(log_dir):
+        os.mkdir(log_dir)
+_, loc_logger, cls_logger, train_logger, avg_train_logger, test_logger = list(map(lambda x: Logger(x), log_dirs))
 
 # Data
 print('==> Preparing data..')
@@ -73,24 +74,27 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=2, shuffle=False,
 
 # Model
 net = RetinaNet()
-net.load_state_dict(torch.load('./model/net.pth'))
+
+criterion = FocalLoss()
+
+optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4)
+
+checkpoint = None
 if args.resume:
     print('==> Resuming from checkpoint..')
     checkpoint = torch.load('./checkpoint/ckpt.pth')
     net.load_state_dict(checkpoint['net'])
-    best_loss = checkpoint['loss']
-    start_epoch = checkpoint['epoch'] + 1
-
-# Memory reduction
-net.half()
+#      optimizer.load_state_dict(checkpoint['optim'])
+    start_epoch = checkpoint['epoch']
+    iteration = checkpoint['iteration']
+    print("Last loss: %.3f" % (checkpoint['loss']))
+    print("Training start from epoch %d iteration %d" % (start_epoch, iteration))
+else:
+    net.load_state_dict(torch.load('./model/net.pth'))
 
 net = torch.nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
 net.cuda()
 
-# Memory reduction
-criterion = FocalLoss().half()
-
-optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4)
 
 # Training
 def train(epoch):
@@ -99,9 +103,11 @@ def train(epoch):
     net.module.freeze_bn()
     train_loss = 0
     for batch_idx, (inputs, loc_targets, cls_targets) in enumerate(trainloader):
-        # Memory reduction
-        inputs = Variable(inputs.cuda()).half()
-        loc_targets = Variable(loc_targets.cuda()).half()
+        # Offset correction
+        idx = batch_idx + iteration
+
+        inputs = Variable(inputs.cuda())
+        loc_targets = Variable(loc_targets.cuda())
         cls_targets = Variable(cls_targets.cuda())
 
         optimizer.zero_grad()
@@ -113,7 +119,7 @@ def train(epoch):
 
         train_loss += loss.data
 
-        step = batch_idx + len(trainloader) * epoch
+        step = idx + len(trainloader) * epoch
         if loc_logger is not None:
             loc_logger.scalar_summary('loss', loc_loss.data, step)
         if cls_logger is not None:
@@ -123,15 +129,16 @@ def train(epoch):
         if avg_train_logger is not None:
             avg_train_logger.scalar_summary('loss', train_loss / (batch_idx + 1), step)
         print('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | train_loss: %.3f | avg_loss: %.3f' 
-                % (batch_idx, len(trainloader), loc_loss.data, cls_loss.data, loss.data, train_loss / (batch_idx + 1)))
-
-        # Debug - catch if loss is nan
-        assert (not isnan(loc_loss.data) and not isnan(cls_loss.data)), "Loss is Nan!"
+                % (idx, len(trainloader), loc_loss.data, cls_loss.data, loss.data, train_loss / (batch_idx + 1)))
 
         # Save at the middle
         if batch_idx % save_every == 0:
-            save('train' + str(batch_idx), net, loss.data, epoch)
+            save('train' + str(step), net, optimizer,
+                    train_loss / (batch_idx + 1), epoch, idx + 1)
 
+        # Finish when total iterations match the number of batches
+        if (idx + 1) % len(trainloader) == 0:
+            break
 
 # Test
 def test(epoch):
@@ -139,8 +146,8 @@ def test(epoch):
     net.eval()
     test_loss = 0
     for batch_idx, (inputs, loc_targets, cls_targets) in enumerate(testloader):
-        inputs = Variable(inputs.cuda(), volatile=True).half()
-        loc_targets = Variable(loc_targets.cuda()).half()
+        inputs = Variable(inputs.cuda(), volatile=True)
+        loc_targets = Variable(loc_targets.cuda())
         cls_targets = Variable(cls_targets.cuda())
 
         loc_preds, cls_preds = net(inputs)
@@ -149,34 +156,27 @@ def test(epoch):
 
         test_loss += loss.data
 
-        if loc_logger is not None:
-            loc_logger.scalar_summary('loss', loc_loss.data, step)
-        if cls_logger is not None:
-            cls_logger.scalar_summary('loss', cls_loss.data, step)
-        if test_logger is not None:
-            test_logger.scalar_summary('loss', loss.data, step)
-        if avg_test_logger is not None:
-            avg_test_logger.scalar_summary('loss', test_loss / (batch_idx + 1), step)
         print('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | test_loss: %.3f | avg_loss: %.3f' 
                 % (batch_idx, len(testloader), loc_loss.data, cls_loss.data, loss.data, test_loss / (batch_idx + 1)))
 
-        # Debug - catch if loss is nan
-        assert (not isnan(loc_loss.data) and not isnan(cls_loss.data)), "Loss is Nan!"
-
-    # Save if loss has improved
-    global best_loss
+    # Save and log
     test_loss /= len(testloader)
-    if test_loss < best_loss:
-        save('test' + str(epoch), net, test_loss, epoch)
-    best_loss = test_loss
+    save('test' + str(epoch), net, optimizer, test_loss, epoch + 1)
 
-def save(label, net, loss=float('inf'), epoch=0):
+    if test_logger is not None:
+        test_logger.scalar_summary('loss', test_loss, (epoch + 1) * len(trainloader))
+    print('average test loss: %.3f' % (test_loss))
+
+
+# Save checkpoints
+def save(label, net, optimizer, loss=float('inf'), epoch=0, iteration=0):
     print('==> Saving checkpoint')
-    # Save checkpoint
     state = {
         'net': net.module.state_dict(),
+        'optim': optimizer.state_dict(),
         'loss': loss,
         'epoch': epoch,
+        'iteration': iteration,
     }
     if not os.path.isdir('checkpoint'):
         os.mkdir('checkpoint')
