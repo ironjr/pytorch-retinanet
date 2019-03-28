@@ -170,7 +170,7 @@ def box_nms(bboxes, scores, threshold=0.5, mode='union'):
     _, order = scores.sort(0, descending=True)
 
     keep = []
-    while order.numel() > 0:
+    while order.dim() != 0:
         i = order[0]
         keep.append(i)
 
@@ -318,3 +318,43 @@ def format_time(seconds):
     if f == '':
         f = '0ms'
     return f
+
+def coco_class_weights():
+    '''frequency of each class in coco train2014'''
+    weights = 1 / torch.FloatTensor([
+            187437, 4955, 30920, 6033, 3838, 4332, 3160, 7051, 7677, 9167,
+            1316, 1372, 833, 6757, 7355, 3302, 3776, 4671, 6769, 5706,
+            3908, 903, 3686, 3596, 6200, 7920, 8779, 4505, 4272, 1862,
+            4698, 1962, 4403, 6659, 2402, 2689, 4012, 4175, 3411, 17048,
+            5637, 14553, 3923, 5539, 4289, 10084, 7018, 4314, 3099, 4638,
+            4939, 5543, 2038, 4004, 5053, 4578, 27292, 4113, 5931, 2905,
+            11174, 2873, 4036, 3415, 1517, 4122, 1980, 4464, 1190, 2302,
+            156, 3933, 1877, 17630, 4337, 4624, 1075, 3468, 135, 1380])
+    weights /= weights.sum()
+    return weights
+
+def coco80to91():
+    '''converts 80-index (val2014) to 91-index (paper)
+    https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/
+    '''
+    #  a = np.loadtxt('data/coco.names', dtype='str', delimiter='\n')
+    #  b = np.loadtxt('data/coco_paper.names', dtype='str', delimiter='\n')
+    #  x = [list(a[i] == b).index(True) + 1 for i in range(80)]  # darknet to coco
+
+    x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+            22, 23, 24, 25, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+            42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+            60, 61, 62, 63, 64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80,
+            81, 82, 84, 85, 86, 87, 88, 89, 90]
+    return x
+
+def coco91to80():
+    '''converts 91-index (paper) to 80-index (val2014)
+    '''
+    x = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, -1, 11, 12, 13, 14, 15, 16, 17, 18,
+            19, 20, 21, 22, 23, -1, 24, 25, -1, -1, 26, 27, 28, 29, 30, 31, 32,
+            33, 34, 35, 36, 37, 38, 39, -1, 40, 41, 42, 43, 44, 45, 46, 47, 48,
+            49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, -1, 60, -1, -1, 61, -1,
+            62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, -1, 73, 74, 75, 76, 77,
+            78, 79, -1]
+    return x

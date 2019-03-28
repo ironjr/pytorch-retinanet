@@ -11,6 +11,8 @@ class DataEncoder:
         self.aspect_ratios = [1/2., 1/1., 2/1.]
         self.scale_ratios = [1., pow(2,1/3.), pow(2,2/3.)]
         self.anchor_wh = self._get_anchor_wh()
+        self.cls_thresh = 0.5
+        self.nms_thresh = 0.5
 
     def _get_anchor_wh(self):
         '''Compute anchor width and height for each feature map.
@@ -104,9 +106,6 @@ class DataEncoder:
           boxes: (tensor) decode box locations, sized [#obj,4].
           labels: (tensor) class labels for each box, sized [#obj,].
         '''
-        CLS_THRESH = 0.5
-        NMS_THRESH = 0.5
-
         input_size = torch.Tensor([input_size,input_size]) if isinstance(input_size, int) \
                      else torch.Tensor(input_size)
         anchor_boxes = self._get_anchor_boxes(input_size)
@@ -119,7 +118,12 @@ class DataEncoder:
         boxes = torch.cat([xy-wh/2, xy+wh/2], 1)  # [#anchors,4]
 
         score, labels = cls_preds.sigmoid().max(1)          # [#anchors,]
-        ids = score > CLS_THRESH
+        ids = score > self.cls_thresh
         ids = ids.nonzero().squeeze()             # [#obj,]
-        keep = box_nms(boxes[ids], score[ids], threshold=NMS_THRESH)
-        return boxes[ids][keep], labels[ids][keep]
+        if ids.nelement() == 0:
+            return None, None, None
+        elif ids.nelement() == 1:
+            return boxes[ids].unsqueeze(0), labels[ids].unsqueeze(0), score[ids].unsqueeze(0)
+        else:
+            keep = box_nms(boxes[ids], score[ids], threshold=self.nms_thresh)
+            return boxes[ids][keep], labels[ids][keep], score[ids][keep]

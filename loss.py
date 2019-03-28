@@ -9,7 +9,7 @@ from torch.autograd import Variable
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, num_classes=90):
+    def __init__(self, num_classes=80):
         '''
         
         Args:
@@ -19,25 +19,25 @@ class FocalLoss(nn.Module):
         self.num_classes = num_classes
 
 
-    def focal_loss(self, x, y):
+    def focal_loss(self, x, y, alpha=0.25, gamma=2):
         '''Focal loss.
 
         Args:
           x: (tensor) sized [N,D].
           y: (tensor) sized [N,].
+          alpha: (float) weight for rare class, 0.25 works good.
+          gamma: (float) suppression of good result, 2 works good.
 
         Return:
           (tensor) focal loss.
         '''
-        alpha = 0.25
-        gamma = 2
-
-        t = one_hot_embedding(y.data.cpu(), 1 + self.num_classes)  # [N,91]
-        t = t[:, 1:]  # exclude background
-        t = Variable(t).cuda()  # [N,90]
+        t = one_hot_embedding(y.data.cpu(), 1 + self.num_classes)  # [N,#cls + 1]
+        t = t[:, 1:]                           # exclude background
+        t = Variable(t).cuda()                 # [N,#cls]
 
         p = x.sigmoid()
         pt = p * t + (1 - p) * (1 - t)         # pt = p if t > 0 else 1-p
+
         w = alpha * t + (1 - alpha) * (1 - t)  # w = alpha if t > 0 else 1-alpha
         w = w * (1 - pt).pow(gamma)
         w = Variable(w).cuda()
@@ -103,7 +103,7 @@ class FocalLoss(nn.Module):
         loss = loc_loss + cls_loss
 
         # Manage NaN loss exception
-        # This code is not optimized
+        # TODO This code is not optimized
         if num_pos.item() == 0:
             return (Variable(torch.tensor(0).type_as(loss.data), requires_grad=True),
                     Variable(torch.tensor(0).type_as(loc_loss.data), requires_grad=True),

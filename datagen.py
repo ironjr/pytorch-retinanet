@@ -20,7 +20,7 @@ from transform import resize, random_flip, random_crop, center_crop
 
 
 class ListDataset(data.Dataset):
-    def __init__(self, root, list_file, train, transform, input_size):
+    def __init__(self, root, list_file, train, transform, input_size, label_conv=None, show_info=False):
         '''
         Args:
           root: (str) ditectory to images.
@@ -28,11 +28,14 @@ class ListDataset(data.Dataset):
           train: (boolean) train or test.
           transform: ([transforms]) image transforms.
           input_size: (int) model input size.
+          label_conf: (list) list maps labels to contiguous numbers.
+          show_info: (bool) get an item also gets filename and original size.
         '''
         self.root = root
         self.train = train
         self.transform = transform
         self.input_size = input_size
+        self.show_info = show_info
 
         self.fnames = []
         self.boxes = []
@@ -51,13 +54,16 @@ class ListDataset(data.Dataset):
             box = []
             label = []
             for i in range(num_boxes):
-                xmin = splited[1+5*i]
-                ymin = splited[2+5*i]
-                xmax = splited[3+5*i]
-                ymax = splited[4+5*i]
-                c = splited[5+5*i]
+                xmin = splited[1 + 5 * i]
+                ymin = splited[2 + 5 * i]
+                xmax = splited[3 + 5 * i]
+                ymax = splited[4 + 5 * i]
+                c = splited[5 + 5 * i]
                 box.append([float(xmin),float(ymin),float(xmax),float(ymax)])
-                label.append(int(c))
+                cint = int(c)
+                if label_conv is not None:
+                    cint = label_conv[cint]
+                label.append(cint)
             self.boxes.append(torch.Tensor(box))
             self.labels.append(torch.LongTensor(label))
 
@@ -81,6 +87,7 @@ class ListDataset(data.Dataset):
         boxes = self.boxes[idx].clone()
         labels = self.labels[idx]
         size = self.input_size
+        orig_size = img.size
 
         # Data augmentation.
         if self.train:
@@ -92,7 +99,10 @@ class ListDataset(data.Dataset):
             img, boxes = center_crop(img, boxes, (size,size))
 
         img = self.transform(img)
-        return img, boxes, labels
+        if self.show_info:
+            return img, boxes, labels, fname, orig_size
+        else:
+            return img, boxes, labels
 
     def collate_fn(self, batch):
         '''Pad images and encode targets.
@@ -108,6 +118,8 @@ class ListDataset(data.Dataset):
         imgs = [x[0] for x in batch]
         boxes = [x[1] for x in batch]
         labels = [x[2] for x in batch]
+        fnames = [x[3] for x in batch] if self.show_info else None
+        sizes = [x[4] for x in batch] if self.show_info else None
 
         h = w = self.input_size
         num_imgs = len(imgs)
@@ -117,10 +129,15 @@ class ListDataset(data.Dataset):
         cls_targets = []
         for i in range(num_imgs):
             inputs[i] = imgs[i]
-            loc_target, cls_target = self.encoder.encode(boxes[i], labels[i], input_size=(w,h))
+            loc_target, cls_target = self.encoder.encode(boxes[i], labels[i],
+                    input_size=(w,h))
             loc_targets.append(loc_target)
             cls_targets.append(cls_target)
-        return inputs, torch.stack(loc_targets), torch.stack(cls_targets)
+
+        if self.show_info:
+            return inputs, torch.stack(loc_targets), torch.stack(cls_targets), fnames, sizes
+        else:
+            return inputs, torch.stack(loc_targets), torch.stack(cls_targets)
 
     def __len__(self):
         return self.num_samples
