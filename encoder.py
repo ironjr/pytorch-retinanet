@@ -75,7 +75,7 @@ class DataEncoder:
           loc_targets: (tensor) encoded bounding boxes, sized [#anchors,4].
           cls_targets: (tensor) encoded class labels, sized [#anchors,].
         '''
-        input_size = torch.Tensor([input_size,input_size]) if isinstance(input_size, int) \
+        input_size = torch.Tensor([input_size, input_size]) if isinstance(input_size, int) \
                      else torch.Tensor(input_size)
         anchor_boxes = self._get_anchor_boxes(input_size)
         boxes = change_box_order(boxes, 'xyxy2xywh')
@@ -84,13 +84,13 @@ class DataEncoder:
         max_ious, max_ids = ious.max(1)
         boxes = boxes[max_ids]
 
-        loc_xy = (boxes[:,:2]-anchor_boxes[:,:2]) / anchor_boxes[:,2:]
-        loc_wh = torch.log(boxes[:,2:]/anchor_boxes[:,2:])
-        loc_targets = torch.cat([loc_xy,loc_wh], 1)
-        cls_targets = 1 + labels[max_ids]
+        loc_xy = (boxes[:, :2] - anchor_boxes[:, :2]) / anchor_boxes[:, 2:]
+        loc_wh = torch.log(boxes[:, 2:] / anchor_boxes[:, 2:])
+        loc_targets = torch.cat([loc_xy, loc_wh], 1)
 
-        cls_targets[max_ious<0.5] = 0
-        ignore = (max_ious>0.4) & (max_ious<0.5)  # ignore ious between [0.4,0.5]
+        cls_targets = 1 + labels[max_ids]
+        cls_targets[max_ious < 0.5] = 0
+        ignore = (max_ious > 0.4) & (max_ious <= 0.5)  # ignore ious between [0.4,0.5)
         cls_targets[ignore] = -1  # for now just mark ignored to -1
         return loc_targets, cls_targets
 
@@ -106,16 +106,16 @@ class DataEncoder:
           boxes: (tensor) decode box locations, sized [#obj,4].
           labels: (tensor) class labels for each box, sized [#obj,].
         '''
-        input_size = torch.Tensor([input_size,input_size]) if isinstance(input_size, int) \
+        input_size = torch.Tensor([input_size, input_size]) if isinstance(input_size, int) \
                      else torch.Tensor(input_size)
         anchor_boxes = self._get_anchor_boxes(input_size)
 
-        loc_xy = loc_preds[:,:2]
-        loc_wh = loc_preds[:,2:]
+        loc_xy = loc_preds[:, :2]
+        loc_wh = loc_preds[:, 2:]
 
-        xy = loc_xy * anchor_boxes[:,2:] + anchor_boxes[:,:2]
-        wh = loc_wh.exp() * anchor_boxes[:,2:]
-        boxes = torch.cat([xy-wh/2, xy+wh/2], 1)  # [#anchors,4]
+        xy = loc_xy * anchor_boxes[:, 2:] + anchor_boxes[:, :2]
+        wh = loc_wh.exp() * anchor_boxes[:, 2:]
+        boxes = torch.cat([xy - wh / 2, xy + wh / 2], 1)  # [#anchors,4]
 
         score, labels = cls_preds.sigmoid().max(1)          # [#anchors,]
         ids = score > self.cls_thresh

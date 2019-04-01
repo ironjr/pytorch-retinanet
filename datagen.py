@@ -59,7 +59,7 @@ class ListDataset(data.Dataset):
                 xmax = splited[3 + 5 * i]
                 ymax = splited[4 + 5 * i]
                 c = splited[5 + 5 * i]
-                box.append([float(xmin),float(ymin),float(xmax),float(ymax)])
+                box.append([float(xmin), float(ymin), float(xmax), float(ymax)])
                 cint = int(c)
                 if label_conv is not None:
                     cint = label_conv[cint]

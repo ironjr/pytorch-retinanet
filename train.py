@@ -30,6 +30,7 @@ coco17_val_path = 'COCO/val2017/'
 coco17_ann_path = 'COCO/annotations/'
 
 save_every = 5000
+loss_thres = 2.5
 
 parser = argparse.ArgumentParser(description='PyTorch RetinaNet Training')
 parser.add_argument('--backbone', default='resnet101', type=str,
@@ -39,6 +40,8 @@ parser.add_argument('--label', default='default', type=str,
         help='labels checkpoints and logs saved under')
 parser.add_argument('--lr', default=1e-3, type=float,
         help='learning rate')
+parser.add_argument('--num_epochs', default=1, type=int,
+        help='number of epochs to run')
 parser.add_argument('--resume', '-r', action='store_true',
         help='resume from checkpoint')
 args = parser.parse_args()
@@ -77,7 +80,7 @@ coco91to80 = coco91to80()
 trainset = ListDataset(root=(data_root + coco17_train_path),
         list_file='./data/coco17_train.txt', train=True, transform=transform,
         input_size=600, label_conv=coco91to80)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True,
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=2, shuffle=True,
         num_workers=0, collate_fn=trainset.collate_fn)
 
 testset = ListDataset(root=(data_root + coco17_val_path),
@@ -140,11 +143,19 @@ def train(epoch):
         loc_preds, cls_preds = net(inputs)
         loss, loc_loss, cls_loss = criterion(
                 loc_preds, loc_targets, cls_preds, cls_targets)
+
+        # Gradient clip
+        if loss > loss_thres:
+            tqdm.write('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | train_loss: %.3f | BATCH SKIPPED!' 
+                % (idx, len(trainloader), loc_loss.data, cls_loss.data, loss.data))
+            continue
+
         loss.backward()
         optimizer.step()
 
         train_loss += loss.data
 
+        # TODO change logger
         step = idx + len(trainloader) * epoch
         if loc_logger is not None:
             loc_logger.scalar_summary('loss', loc_loss.data, step)
@@ -164,7 +175,7 @@ def train(epoch):
                     train_loss / (batch_idx + 1), epoch, idx + 1)
 
         # Finish when total iterations match the number of batches
-        if (idx + 1) % len(trainloader) == 0:
+        if iteration != 0 and (idx + 1) % len(trainloader) == 0:
             break
 
 # Test
@@ -211,9 +222,7 @@ def save(label, net, optimizer, loss=float('inf'), epoch=0, iteration=0):
     torch.save(state, './checkpoint/' + args.label + '/ckpt_' + label + '.pth')
     tqdm.write('==> Save done!')
 
-
-#  for epoch in range(start_epoch, start_epoch + 200):
-#      train(epoch)
-#      test(epoch)
-train(start_epoch)
-test(start_epoch)
+# Main run
+for epoch in range(start_epoch, start_epoch + args.num_epochs):
+    train(epoch)
+    test(epoch)

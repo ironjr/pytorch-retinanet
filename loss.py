@@ -43,7 +43,7 @@ class FocalLoss(nn.Module):
         w = Variable(w).cuda()
         return F.binary_cross_entropy_with_logits(x, t, w, reduction='sum')
 
-    def focal_loss_alt(self, x, y):
+    def focal_loss_alt(self, x, y, alpha=0.25):
         '''Focal loss alternative.
 
         Args:
@@ -53,8 +53,6 @@ class FocalLoss(nn.Module):
         Return:
           (tensor) focal loss.
         '''
-        alpha = 0.25
-
         t = one_hot_embedding(y.data.cpu(), 1 + self.num_classes)
         t = t[:, 1:]
         t = Variable(t).cuda()
@@ -97,8 +95,8 @@ class FocalLoss(nn.Module):
         pos_neg = cls_targets > -1  # exclude ignored anchors
         mask = pos_neg.unsqueeze(2).expand_as(cls_preds)
         masked_cls_preds = cls_preds[mask].view(-1, self.num_classes)
-        cls_loss = self.focal_loss(masked_cls_preds, cls_targets[pos_neg]) \
-                / num_pos
+        cls_loss = self.focal_loss_alt(masked_cls_preds,
+                cls_targets[pos_neg]) / num_pos
 
         loss = loc_loss + cls_loss
 
