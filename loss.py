@@ -40,8 +40,10 @@ class FocalLoss(nn.Module):
 
         w = alpha * t + (1 - alpha) * (1 - t)  # w = alpha if t > 0 else 1-alpha
         w = w * (1 - pt).pow(gamma)
-        w = Variable(w).cuda()
-        return F.binary_cross_entropy_with_logits(x, t, w, reduction='sum')
+        #  w = Variable(w).cuda()
+        #  return F.binary_cross_entropy_with_logits(x, t, w, reduction='sum')
+        loss = -w * pt.log()
+        return loss.sum()
 
     def focal_loss_alt(self, x, y, alpha=0.25):
         '''Focal loss alternative.
@@ -95,7 +97,7 @@ class FocalLoss(nn.Module):
         pos_neg = cls_targets > -1  # exclude ignored anchors
         mask = pos_neg.unsqueeze(2).expand_as(cls_preds)
         masked_cls_preds = cls_preds[mask].view(-1, self.num_classes)
-        cls_loss = self.focal_loss_alt(masked_cls_preds,
+        cls_loss = self.focal_loss(masked_cls_preds,
                 cls_targets[pos_neg]) / num_pos
 
         loss = loc_loss + cls_loss

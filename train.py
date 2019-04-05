@@ -30,7 +30,7 @@ coco17_val_path = 'COCO/val2017/'
 coco17_ann_path = 'COCO/annotations/'
 
 save_every = 5000
-loss_thres = 2.5
+loss_thres = 3
 
 parser = argparse.ArgumentParser(description='PyTorch RetinaNet Training')
 parser.add_argument('--backbone', default='resnet101', type=str,
@@ -80,14 +80,14 @@ coco91to80 = coco91to80()
 trainset = ListDataset(root=(data_root + coco17_train_path),
         list_file='./data/coco17_train.txt', train=True, transform=transform,
         input_size=600, label_conv=coco91to80)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=2, shuffle=True,
-        num_workers=0, collate_fn=trainset.collate_fn)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True,
+        num_workers=2, collate_fn=trainset.collate_fn)
 
 testset = ListDataset(root=(data_root + coco17_val_path),
         list_file='./data/coco17_val.txt', train=False, transform=transform,
         input_size=600, label_conv=coco91to80)
-testloader = torch.utils.data.DataLoader(testset, batch_size=2, shuffle=False,
-        num_workers=0, collate_fn=testset.collate_fn)
+testloader = torch.utils.data.DataLoader(testset, batch_size=4, shuffle=False,
+        num_workers=2, collate_fn=testset.collate_fn)
 
 # Model and optimizer
 net = RetinaNet(
@@ -170,7 +170,7 @@ def train(epoch):
                 % (idx, len(trainloader), loc_loss.data, cls_loss.data, loss.data, train_loss / (batch_idx + 1)))
 
         # Save at every specified cycles
-        if batch_idx != 0 and batch_idx % save_every == 0:
+        if (batch_idx + 1) % save_every == 0:
             save('train' + str(step), net, optimizer,
                     train_loss / (batch_idx + 1), epoch, idx + 1)
 
@@ -183,19 +183,20 @@ def test(epoch):
     print('\nTest')
     net.eval()
     test_loss = 0
-    for batch_idx, (inputs, loc_targets, cls_targets) in enumerate(tqdm(testloader)):
-        inputs = Variable(inputs.cuda(), volatile=True)
-        loc_targets = Variable(loc_targets.cuda())
-        cls_targets = Variable(cls_targets.cuda())
+    with torch.no_grad():
+        for batch_idx, (inputs, loc_targets, cls_targets) in enumerate(tqdm(testloader)):
+            inputs = Variable(inputs.cuda())
+            loc_targets = Variable(loc_targets.cuda())
+            cls_targets = Variable(cls_targets.cuda())
 
-        loc_preds, cls_preds = net(inputs)
-        loss, loc_loss, cls_loss = criterion(
-                loc_preds, loc_targets, cls_preds, cls_targets)
+            loc_preds, cls_preds = net(inputs)
+            loss, loc_loss, cls_loss = criterion(
+                    loc_preds, loc_targets, cls_preds, cls_targets)
 
-        test_loss += loss.data
+            test_loss += loss.data
 
-        tqdm.write('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | test_loss: %.3f | avg_loss: %.3f' 
-                % (batch_idx, len(testloader), loc_loss.data, cls_loss.data, loss.data, test_loss / (batch_idx + 1)))
+            tqdm.write('batch (%d/%d) | loc_loss: %.3f | cls_loss: %.3f | test_loss: %.3f | avg_loss: %.3f' 
+                    % (batch_idx, len(testloader), loc_loss.data, cls_loss.data, loss.data, test_loss / (batch_idx + 1)))
 
     # Save and log
     test_loss /= len(testloader)
@@ -225,4 +226,5 @@ def save(label, net, optimizer, loss=float('inf'), epoch=0, iteration=0):
 # Main run
 for epoch in range(start_epoch, start_epoch + args.num_epochs):
     train(epoch)
+    iteration = 0
     test(epoch)
